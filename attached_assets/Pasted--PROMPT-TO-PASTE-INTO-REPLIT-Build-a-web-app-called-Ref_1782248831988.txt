@@ -1,0 +1,194 @@
+## PROMPT TO PASTE INTO REPLIT
+
+```
+Build a web app called "ReflectIQ" — an MVP that converts short student reflections into
+structured, faculty-facing learning intelligence. It is NOT a chatbot, tutor, or grading tool.
+It has exactly one job: give faculty an aggregated, anonymized view of where a class is
+confused, progressing, or in need of instructional adjustment.
+
+====================================================================
+TECH STACK
+====================================================================
+- Frontend: React + Vite, Tailwind CSS
+- Backend: Node.js + Express
+- Storage: a simple JSON file or SQLite (no need for a heavy DB — this is an MVP/demo)
+- LLM calls: use the OpenAI API (e.g. model "gpt-4o-mini" for cost/speed, configurable
+  via an env var OPENAI_MODEL) for (a) generating the Step 2 and Step 3 follow-up
+  questions and (b) classifying reflections into learning-signal categories. Use the
+  official "openai" npm package and the Chat Completions API. For the classification
+  call, use OpenAI's JSON mode / structured output (response_format: { type:
+  "json_object" }) so the response is reliably parseable. Wrap all LLM calls so the
+  app still fully works with mock/local classification if no API key is present
+  (use simple keyword/heuristic classification as a fallback).
+- Embeddings/clustering: use a lightweight local approach for grouping reflections into
+  anonymous theme clusters — either (a) call OpenAI's embeddings endpoint
+  (model "text-embedding-3-small") and cluster with k-means/cosine similarity, or
+  (b) fall back to a local TF-IDF + cosine similarity approach if no API key is
+  present. This does not need to be production-grade — it needs to visibly work and
+  produce sensible-looking clusters for a demo.
+
+====================================================================
+APP STRUCTURE — 3 LAYERS
+====================================================================
+
+LAYER 1 — INTERACTION LAYER (Student View, route: /student)
+A guided 3-step reflection flow, one question at a time, clean minimal UI:
+  Step 1 (Open Prompt): "What did you learn from this topic?"
+  Step 2 (Clarifying Follow-Up): "Where are you most uncertain?"
+     - This question should be dynamically generated based on the Step 1 answer
+       (call the LLM with the student's Step 1 text and ask it to produce ONE
+       short clarifying follow-up question).
+  Step 3 (Socratic Reasoning Probe): "Why does this concept matter, and how would
+     you apply it to a real business or technology case?"
+  - Before Step 1, show a one-line disclosure: "Your response is anonymized and used
+    only to improve class-level instruction — not to evaluate you individually."
+  - On submit, the full 3-step dialogue + selected course topic is sent to the backend.
+  - Student selects a course topic from a dropdown before starting (e.g. "Agentic AI",
+    "Blockchain", "Quantum Computing", "Generative AI Ethics", "Cybersecurity Basics").
+
+LAYER 2 — INTELLIGENCE LAYER (backend pipeline, not a UI)
+On each submitted reflection, run this pipeline:
+  1. Signal Classification: classify the dialogue into ONE primary learning-signal
+     category from this fixed taxonomy:
+       - "comprehension" (solid understanding)
+       - "surface_understanding" (can define term, can't reason about it)
+       - "definitional_gap" (doesn't know the term itself)
+       - "causal_reasoning_gap" (knows what, not why/how)
+       - "applied_transfer_difficulty" (can't apply to a real case)
+       - "pacing_concern" (feels rushed/behind)
+       - "support_need" (explicitly asks for help/resources)
+     Use the LLM (with the course topic + a short rubric in the system prompt) to
+     return a JSON object via OpenAI's JSON mode: { signal: <category>, confidence:
+     <0-1>, rationale: <short> }.
+  2. Embedding + Clustering: vectorize the reflection text and assign it to a cluster
+     of semantically similar reflections WITHIN the same topic + signal type.
+  3. Aggregation & Privacy Filter: any cluster with fewer than a configurable
+     MIN_CLUSTER_SIZE (default 4) is suppressed from ever reaching the dashboard
+     query layer — enforce this in the data access function itself, not just the UI,
+     so it's a structural guarantee. Never expose a single raw reflection tied to an
+     identifiable student in any faculty-facing endpoint or view.
+
+LAYER 3 — FACULTY VALUE LAYER (Faculty Dashboard, route: /faculty)
+Three views, all reading ONLY from aggregated cluster data (never individual records):
+
+  1. Topic-Level Learning Pattern View
+     - A grid/heatmap: rows = course topics, columns = signal categories, cell =
+       count or % of reflections in that bucket. Color intensity = concentration.
+     - Quick-glance "hot spot" indicator on topics with high definitional_gap or
+       causal_reasoning_gap concentration.
+
+  2. Top Cluster Cards
+     - Card per top cluster showing: course topic, signal type (with a colored badge),
+       number of students in the cluster (e.g. "14 students"), 2-3 anonymized/
+       paraphrased representative phrases (NOT verbatim quotes tied to one student —
+       generate or store these as paraphrased composites), and a trend arrow
+       (up/down vs. last week, using mock historical data).
+
+  3. Action Signals
+     - For each top cluster, show a recommended faculty action chip:
+       "Revisit", "Reinforce", "Provide real-world examples", "Clarify terminology",
+       "No action needed" — derived from a simple rule mapping signal type + cluster
+       size to a suggested action (e.g. causal_reasoning_gap + large cluster →
+       "Provide real-world examples").
+     - Let faculty mark an action as "Acknowledged" or "Dismissed" (stored locally,
+       does not need to be persisted beyond session for the MVP).
+
+  Add filters at the top of the dashboard: course topic, date range, signal type.
+  Add a small summary strip at the very top: total reflections this week, number of
+  active clusters, number of topics flagged for attention.
+
+====================================================================
+GOVERNANCE / RESPONSIBLE-AI GUARDRAILS TO VISIBLY IMPLEMENT
+====================================================================
+- No Individual Attribution: there must be NO faculty-facing screen, table, or API
+  response anywhere in the app that links a reflection to a student name/ID/account.
+  Do not even store a display name with the reflection in a way the dashboard can
+  query — keep identity fields out of any faculty-facing query path entirely.
+- Aggregation Threshold: enforce MIN_CLUSTER_SIZE suppression server-side (see Layer 2).
+- No Grading or Ranking: there must be no score, grade, percentile, or ranking of any
+  individual anywhere in the app.
+- Student Disclosure: the one-line disclosure shown before Step 1 (see Layer 1).
+- Human Authority: action chips are always labeled "Suggested action" — never auto-applied.
+- FERPA-Aware Design: don't persist any PII; the only persisted link is reflection →
+  course/topic/timestamp, not reflection → student identity.
+Add a small "Governance" info panel/tooltip in the faculty dashboard header explaining
+these six principles briefly, so it's visible during a demo.
+
+====================================================================
+*** CRITICAL: SEED THE APP WITH RICH SYNTHETIC DEMO DATA ***
+====================================================================
+Because this is for a live demo/presentation, the Faculty Dashboard must NOT start
+empty. On first run (or via a "Reset Demo Data" button), seed the database with a
+realistic synthetic dataset so every dashboard view is fully populated and tells a
+believable story. Specifically generate:
+
+- 5 course topics: "Agentic AI", "Blockchain", "Quantum Computing",
+  "Generative AI Ethics", "Cybersecurity Basics"
+- ~180-220 synthetic student reflections total, spread unevenly across topics and
+  across the last 3 weeks (so the dashboard's date filter and trend arrows have
+  something to show). Make the distribution realistic, e.g.:
+    - "Agentic AI": large volume, heavy concentration in "causal_reasoning_gap" and
+      "applied_transfer_difficulty" (~40% of its reflections) — this should emerge
+      as the dashboard's clearest "hot spot" topic.
+    - "Blockchain": moderate volume, a noticeable "definitional_gap" cluster early
+      in week 1 that shrinks by week 3 (shows improvement over time / downward trend).
+    - "Quantum Computing": smaller volume, mixed signals, one clear "support_need"
+      cluster ("I don't even know where to start with the math").
+    - "Generative AI Ethics": good "comprehension" majority but a real
+      "applied_transfer_difficulty" cluster around "how would this play out in a
+      real company" type reasoning.
+    - "Cybersecurity Basics": mostly "comprehension" and "surface_understanding",
+      low concern — should show as a "no action needed" example topic.
+- Each synthetic reflection should have a plausible 3-step dialogue (Step 1/2/3 text)
+  written in a believable student voice — vary phrasing, length, and tone so clusters
+  look organic rather than templated. Pre-classify each with a signal type and
+  pre-assign it to a cluster (respecting MIN_CLUSTER_SIZE).
+- For each major cluster, write 3-4 paraphrased representative phrases that sound
+  like real anonymized composites, e.g. for an Agentic AI causal_reasoning_gap
+  cluster: "Can describe what an agent does step by step, but isn't sure why
+  giving it autonomy is actually better than a regular script", "Understands the
+  components but not what problem agentic design is solving that traditional
+  automation doesn't".
+- Generate this synthetic dataset programmatically with a seed script
+  (e.g. scripts/seedDemoData.js) that either (a) calls the OpenAI API to generate
+  varied realistic reflections from a set of topic/signal "recipes", with a fallback to
+  (b) a hardcoded but varied set of ~40-50 hand-written template reflections that
+  get randomly recombined/perturbed (synonym swaps, reordering) to reach the full
+  ~200 count if no OpenAI key is available. Either path must produce non-repetitive-
+  looking text.
+- Include a few intentionally small clusters (below MIN_CLUSTER_SIZE) in the raw
+  seed data that get correctly suppressed — so during the demo you can show the
+  privacy filter actually doing something if asked ("here's how many raw reflections
+  came in vs. how many cluster cards faculty actually see").
+- Add a visible "Reset / Regenerate Demo Data" button (admin-only area or a small
+  gear icon on the faculty dashboard) that re-runs the seed script, so the dataset
+  can be regenerated fresh before a live presentation without restarting the app.
+
+====================================================================
+NAVIGATION / DEMO FLOW
+====================================================================
+- Landing page (/) with two big buttons: "I'm a Student" → /student, "I'm Faculty" → /faculty
+- Make sure /student works end-to-end live (real LLM call or graceful fallback) so it
+  can be demoed by submitting a new reflection and then showing it (or a cluster it
+  joins) reflected on the faculty dashboard after a refresh.
+- Faculty dashboard should load fast and look polished — this is the centerpiece for
+  the presentation. Prioritize visual clarity: clear color coding per signal type,
+  readable cluster cards, a clean topic x signal heatmap.
+
+====================================================================
+DELIVERABLES IN THE REPL
+====================================================================
+- README.md: setup guide, architecture overview (3-layer diagram in text/ASCII is fine),
+  governance note, and how to run the demo data seed script.
+- A simple architecture diagram (can be an SVG or even a clearly labeled ASCII diagram
+  in the README) showing Interaction Layer → Intelligence Layer → Faculty Value Layer.
+- .env.example showing OPENAI_API_KEY and OPENAI_MODEL as optional, with the app
+  clearly working in a no-key "mock mode" for classification and follow-up question
+  generation.
+
+Build this now, starting with the data model and seed script first (so the dashboard
+has something to render immediately), then the faculty dashboard UI, then the student
+flow, then wiring in real LLM calls.
+```
+
+---

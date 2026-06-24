@@ -1,0 +1,1 @@
+- [node-sqlite-over-better-sqlite3](node-sqlite-over-better-sqlite3.md) — use Node.js 24 built-in node:sqlite instead of better-sqlite3; native bindings don't compile in Replit.

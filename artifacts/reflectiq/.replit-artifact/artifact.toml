@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ReflectIQ"
+version = "1.0.0"
+id = "artifacts/reflectiq"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20514
+
+[services.development]
+run = "pnpm --filter @workspace/reflectiq run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/reflectiq", "run", "build" ]
+publicDir = "artifacts/reflectiq/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20514"
+BASE_PATH = "/"

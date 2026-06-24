@@ -1,0 +1,376 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: ReflectIQ API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: reflections
+    description: Student reflection submission
+  - name: dashboard
+    description: Faculty dashboard data
+  - name: admin
+    description: Admin operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /reflections/followup:
+    post:
+      operationId: getFollowupQuestion
+      tags: [reflections]
+      summary: Generate a follow-up question for step 2
+      description: Uses LLM (or heuristic fallback) to generate a clarifying question based on the step 1 answer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FollowupInput"
+      responses:
+        "200":
+          description: Generated follow-up question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowupOutput"
+
+  /reflections:
+    post:
+      operationId: submitReflection
+      tags: [reflections]
+      summary: Submit a completed 3-step reflection
+      description: Submits the full student reflection, classifies it, embeds it, and assigns it to a cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReflectionInput"
+      responses:
+        "201":
+          description: Reflection submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReflectionResult"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get faculty dashboard summary strip
+      description: Returns total reflections this week, active clusters, and flagged topic count
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/heatmap:
+    get:
+      operationId: getHeatmap
+      tags: [dashboard]
+      summary: Get topic x signal heatmap data
+      description: Returns rows per topic with counts per signal category
+      parameters:
+        - name: topic
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by course topic
+        - name: dateFrom
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO date string for start of date range
+        - name: dateTo
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO date string for end of date range
+        - name: signal
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by signal type
+      responses:
+        "200":
+          description: Heatmap rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeatmapRow"
+
+  /dashboard/clusters:
+    get:
+      operationId: getClusters
+      tags: [dashboard]
+      summary: Get top cluster cards for faculty dashboard
+      description: Returns anonymized, aggregated cluster cards (suppresses clusters below MIN_CLUSTER_SIZE)
+      parameters:
+        - name: topic
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by course topic
+        - name: dateFrom
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO date string for start of date range
+        - name: dateTo
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO date string for end of date range
+        - name: signal
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by signal type
+      responses:
+        "200":
+          description: Cluster cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClusterCard"
+
+  /clusters/{id}/action:
+    patch:
+      operationId: updateClusterAction
+      tags: [dashboard]
+      summary: Mark a cluster action as acknowledged or dismissed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClusterActionUpdate"
+      responses:
+        "200":
+          description: Updated cluster action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterCard"
+
+  /admin/seed:
+    post:
+      operationId: seedDemoData
+      tags: [admin]
+      summary: Reset and regenerate demo data
+      description: Clears all data and seeds the database with rich synthetic demo data
+      responses:
+        "200":
+          description: Seed completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeedResult"
+
+  /admin/stats:
+    get:
+      operationId: getRawStats
+      tags: [admin]
+      summary: Get raw vs visible cluster counts (for governance demo)
+      description: Returns raw reflection count vs visible cluster count to demonstrate privacy filter
+      responses:
+        "200":
+          description: Raw stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    FollowupInput:
+      type: object
+      required: [step1Text, topic]
+      properties:
+        step1Text:
+          type: string
+          description: Student's answer to the open prompt (step 1)
+        topic:
+          type: string
+          description: Selected course topic
+
+    FollowupOutput:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          description: Generated clarifying follow-up question for step 2
+
+    ReflectionInput:
+      type: object
+      required: [topic, step1Text, step2Text, step3Text]
+      properties:
+        topic:
+          type: string
+          description: Selected course topic
+        step1Text:
+          type: string
+          description: Answer to open prompt
+        step2Text:
+          type: string
+          description: Answer to clarifying follow-up
+        step3Text:
+          type: string
+          description: Answer to Socratic reasoning probe
+
+    ReflectionResult:
+      type: object
+      required: [id, signal, confidence]
+      properties:
+        id:
+          type: integer
+        signal:
+          type: string
+          description: Classified learning-signal category
+        confidence:
+          type: number
+          description: Classification confidence 0-1
+        clusterId:
+          type: ["integer", "null"]
+
+    DashboardSummary:
+      type: object
+      required: [totalReflectionsThisWeek, activeClusterCount, flaggedTopicCount]
+      properties:
+        totalReflectionsThisWeek:
+          type: integer
+        activeClusterCount:
+          type: integer
+          description: Number of clusters meeting MIN_CLUSTER_SIZE threshold
+        flaggedTopicCount:
+          type: integer
+          description: Topics with high definitional_gap or causal_reasoning_gap concentration
+
+    HeatmapRow:
+      type: object
+      required: [topic, signals, total, isHotspot]
+      properties:
+        topic:
+          type: string
+        signals:
+          type: object
+          description: Map of signal category to count
+          additionalProperties:
+            type: integer
+        total:
+          type: integer
+        isHotspot:
+          type: boolean
+          description: True if this topic has high gap concentration
+
+    ClusterCard:
+      type: object
+      required: [id, topic, signal, studentCount, representativePhrases, suggestedAction, actionStatus, trendDirection]
+      properties:
+        id:
+          type: integer
+        topic:
+          type: string
+        signal:
+          type: string
+          description: Learning signal category
+        studentCount:
+          type: integer
+        representativePhrases:
+          type: array
+          items:
+            type: string
+          description: 2-3 anonymized paraphrased phrases
+        suggestedAction:
+          type: string
+          description: "One of: Revisit, Reinforce, Provide real-world examples, Clarify terminology, No action needed"
+        actionStatus:
+          type: ["string", "null"]
+          description: "null, acknowledged, or dismissed"
+        trendDirection:
+          type: string
+          description: "up, down, or stable"
+        trendDelta:
+          type: ["integer", "null"]
+          description: Change in student count vs previous period
+
+    ClusterActionUpdate:
+      type: object
+      required: [actionStatus]
+      properties:
+        actionStatus:
+          type: string
+          description: "acknowledged or dismissed"
+
+    SeedResult:
+      type: object
+      required: [reflectionsCreated, clustersCreated, suppressedClusters]
+      properties:
+        reflectionsCreated:
+          type: integer
+        clustersCreated:
+          type: integer
+        suppressedClusters:
+          type: integer
+          description: Clusters below MIN_CLUSTER_SIZE that were created in raw data but suppressed
+
+    RawStats:
+      type: object
+      required: [totalRawReflections, visibleClusters, suppressedClusters, minClusterSize]
+      properties:
+        totalRawReflections:
+          type: integer
+        visibleClusters:
+          type: integer
+        suppressedClusters:
+          type: integer
+        minClusterSize:
+          type: integer
